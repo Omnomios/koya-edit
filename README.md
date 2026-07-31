@@ -2,6 +2,8 @@
 
 A Wayland text editor built on [Koya](https://www.koya-ui.com/). Not because the world needed another editor. Because I needed one that wasn't VS Code.
 
+![KoyaEdit editing cursors.js](docs/screenshots/editor.png)
+
 ## Why this exists
 
 Three reasons. None of them are "disrupt the IDE market."
