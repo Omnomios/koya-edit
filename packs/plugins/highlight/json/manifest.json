@@ -1,0 +1,6 @@
+{
+  "id": "json",
+  "extensions": ["json", "jsonc", "json5"],
+  "grammar": "builtin",
+  "highlights": "highlights.scm"
+}

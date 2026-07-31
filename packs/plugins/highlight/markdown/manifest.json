@@ -1,0 +1,8 @@
+{
+  "id": "markdown",
+  "extensions": ["md", "markdown", "mdown", "mkd"],
+  "grammar": "builtin",
+  "highlights": "highlights.scm",
+  "highlightsInline": "highlights_inline.scm",
+  "injectionLanguage": "markdown_inline"
+}

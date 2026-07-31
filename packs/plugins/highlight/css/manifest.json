@@ -1,0 +1,6 @@
+{
+  "id": "css",
+  "extensions": ["css"],
+  "grammar": "builtin",
+  "highlights": "highlights.scm"
+}

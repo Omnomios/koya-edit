@@ -1,0 +1,6 @@
+{
+  "id": "cpp",
+  "extensions": ["cpp", "cc", "cxx", "hpp", "hh", "hxx"],
+  "grammar": "builtin",
+  "highlights": "highlights.scm"
+}

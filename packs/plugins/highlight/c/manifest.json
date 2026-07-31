@@ -1,0 +1,6 @@
+{
+  "id": "c",
+  "extensions": ["c", "h"],
+  "grammar": "builtin",
+  "highlights": "highlights.scm"
+}

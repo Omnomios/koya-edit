@@ -1,0 +1,6 @@
+{
+  "id": "html",
+  "extensions": ["html", "htm", "xhtml"],
+  "grammar": "builtin",
+  "highlights": "highlights.scm"
+}
