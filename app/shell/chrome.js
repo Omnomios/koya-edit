@@ -47,7 +47,9 @@ export async function createTabBar(win, parent, opts = {})
     const onPin    = typeof opts.onPin === 'function' ? opts.onPin : async () => {};
     const onClose  = typeof opts.onClose === 'function' ? opts.onClose : async () => {};
     const onNew    = typeof opts.onNew === 'function' ? opts.onNew : async () => {};
-    void onClose;
+    const onContextMenu = typeof opts.onContextMenu === 'function' ? opts.onContextMenu : null;
+    const isRightClick = typeof opts.isRightClick === 'function' ? opts.isRightClick : () => false;
+    const isMiddleClick = typeof opts.isMiddleClick === 'function' ? opts.isMiddleClick : () => false;
     const tabHeight = theme.tabHeight;
     const padL      = 16;
     const padR      = 16;
@@ -67,7 +69,15 @@ export async function createTabBar(win, parent, opts = {})
     });
     await UI.attach(win, parent, bar);
 
-    const noteNewClick = async () => {
+    const noteNewClick = async (wp) => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if(isRightClick())
+        {
+            if(typeof opts.onBarContextMenu === 'function')
+                await opts.onBarContextMenu(wp || {x: 0, y: 0});
+            return;
+        }
+        if(isMiddleClick()) return;
         const now      = Date.now();
         const isDouble = lastClick.path === NEW_CLICK && (now - lastClick.at) < 400;
         lastClick      = {path: NEW_CLICK, at: now};
@@ -107,8 +117,21 @@ export async function createTabBar(win, parent, opts = {})
     let renderChain  = Promise.resolve();
 
     const bindTabClick = async (slot) => {
-        await UI.setOnMouseDown(win, slot.root, async () => {
-            const path     = slot.path;
+        await UI.setOnMouseDown(win, slot.root, async (wp) => {
+            const path = slot.path;
+            // Event.pointerDown (button) and element mouseDown ordering is not
+            // guaranteed — yield so the button tracker can update first.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            if(isRightClick())
+            {
+                if(onContextMenu) await onContextMenu(path, wp || {x: 0, y: 0});
+                return;
+            }
+            if(isMiddleClick())
+            {
+                await onClose(path);
+                return;
+            }
             const now      = Date.now();
             const isDouble = lastClick.path === path && (now - lastClick.at) < 400;
             lastClick      = {path, at: now};
@@ -241,10 +264,14 @@ export async function createTabBar(win, parent, opts = {})
             slot.iconGlyph = spec.icon;
             ops.push(UI.setTextString(win, slot.icon, spec.icon));
         }
-        if(slot.active !== spec.active || slot.preview !== spec.preview)
+        const colourDirty = slot.active !== spec.active || slot.preview !== spec.preview
+            || slot.labelColour !== spec.labelColour || slot.forceTheme;
+        if(colourDirty)
         {
             slot.active  = spec.active;
             slot.preview = spec.preview;
+            slot.labelColour = spec.labelColour;
+            slot.forceTheme = false;
             ops.push(UI.setBoxColour(win, slot.root, spec.active ? theme.tabActive : theme.tabInactive));
             ops.push(UI.setTextColour(win, slot.icon, spec.active ? theme.primary : theme.tertiary));
             ops.push(UI.setTextColour(win, slot.text, spec.labelColour));
@@ -377,7 +404,14 @@ export async function createTabBar(win, parent, opts = {})
         return run;
     };
 
-    return {root: bar, render};
+    const reapplyTheme = async () => {
+        for(const slot of tabs.values())
+            slot.forceTheme = true;
+        await settled(UI.setBoxColour(win, bar, theme.panel));
+        // Caller typically calls render() so slot colours refresh via forceTheme.
+    };
+
+    return {root: bar, render, reapplyTheme};
 }
 
 export async function createBreadcrumbBar(win, parent, opts = {})
@@ -427,6 +461,12 @@ export async function createBreadcrumbBar(win, parent, opts = {})
                 void e;
             }
             await UI.setLayoutSize(win, labelId, {x: Math.max(8, Math.min(2000, w)), y: height});
+        },
+        async reapplyTheme() {
+            await Promise.all([
+                settled(UI.setBoxColour(win, bar, theme.bg)),
+                settled(UI.setTextColour(win, labelId, theme.textMuted))
+            ]);
         }
     };
 }
@@ -436,6 +476,10 @@ export async function createFileTree(win, parent, opts = {})
     const workspaceRoot = opts.root;
     const onOpen        = typeof opts.onOpen === 'function' ? opts.onOpen : async () => {};
     const getActivePath = typeof opts.getActivePath === 'function' ? opts.getActivePath : () => null;
+    const onContextMenu = typeof opts.onContextMenu === 'function' ? opts.onContextMenu : null;
+    const onBackgroundContextMenu = typeof opts.onBackgroundContextMenu === 'function' ? opts.onBackgroundContextMenu : null;
+    const isRightClick = typeof opts.isRightClick === 'function' ? opts.isRightClick : () => false;
+    const isMiddleClick = typeof opts.isMiddleClick === 'function' ? opts.isMiddleClick : () => false;
     const embedded      = !!opts.embedded;
     /** Soft cap on flattened expanded rows kept in the DOM. */
     const maxFlatRows = 4000;
@@ -721,9 +765,25 @@ export async function createFileTree(win, parent, opts = {})
 
         const rec = {path, depth, isDir, entry, glyph, root, accent, spacer, chevron, icon, label};
 
-        await UI.setOnMouseDown(win, root, async () => {
+        await UI.setOnMouseDown(win, root, async (wp) => {
+            // Yield so Event.pointerDown can update the button tracker first.
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            if(isRightClick())
+            {
+                if(onContextMenu)
+                {
+                    await onContextMenu({
+                        path,
+                        isDir: !!isDir,
+                        name: entry && entry.name ? entry.name : '',
+                        wp: wp || {x: 0, y: 0}
+                    });
+                }
+                return;
+            }
             if(isDir)
             {
+                if(isMiddleClick()) return;
                 if(toggleBusy) return;
                 toggleBusy = true;
                 try
@@ -736,6 +796,11 @@ export async function createFileTree(win, parent, opts = {})
                 {
                     toggleBusy = false;
                 }
+                return;
+            }
+            if(isMiddleClick())
+            {
+                await onOpen(path, {preview: false});
                 return;
             }
             const now      = Date.now();
@@ -936,6 +1001,18 @@ export async function createFileTree(win, parent, opts = {})
         await applyScroll();
     });
 
+    if(typeof UI.setOnMouseDown === 'function' && onBackgroundContextMenu)
+    {
+        const bgContext = async (wp) => {
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            if(!isRightClick()) return;
+            await onBackgroundContextMenu(wp || {x: 0, y: 0});
+        };
+        // Header + empty list area (rows bind their own right-click).
+        await UI.setOnMouseDown(win, headerWrap, bgContext);
+        await UI.setOnMouseDown(win, listClip, bgContext);
+    }
+
     await refreshNow();
 
     return {
@@ -943,6 +1020,17 @@ export async function createFileTree(win, parent, opts = {})
         refresh,
         refreshNow,
         syncActive,
+        isExpanded(path) {
+            return expanded.has(path);
+        },
+        async expandPath(path) {
+            if(!path || expanded.has(path)) return;
+            await expandDir(path);
+        },
+        async collapsePath(path) {
+            if(!path || !expanded.has(path)) return;
+            await collapseDir(path);
+        },
         getWidth() {
             return treeWidth;
         },
@@ -962,6 +1050,18 @@ export async function createFileTree(win, parent, opts = {})
             clampScroll();
             await applyScroll();
             return treeWidth;
+        },
+        async reapplyTheme() {
+            try
+            {
+                await Promise.all([
+                    settled(UI.setBoxColour(win, pane, theme.panel)),
+                    settled(UI.setTextColour(win, header, theme.text)),
+                    settled(UI.setTextColour(win, headerIcon, theme.text))
+                ]);
+            }
+            catch(e) { void e; }
+            await refreshNow();
         }
     };
 }
@@ -975,7 +1075,9 @@ export async function createTreeSplitter(win, parent, opts = {})
     const getWidth = typeof opts.getWidth === 'function' ? opts.getWidth : () => theme.treeWidth;
     const setWidth = typeof opts.setWidth === 'function' ? opts.setWidth : async () => {};
     const dragHost = opts.dragHost;
-    const hitW     = 7;
+    const invert   = !!opts.invert;
+    const hitW     = typeof opts.hitWidth === 'number' ? opts.hitWidth : 7;
+    const onDragStart = typeof opts.onDragStart === 'function' ? opts.onDragStart : null;
 
     const strip = await UI.createElement(win, {
         renderable: {type: 'box', colour: [0, 0, 0, 0]},
@@ -1012,6 +1114,7 @@ export async function createTreeSplitter(win, parent, opts = {})
         dragging = true;
         startX   = windowPoint?.x || 0;
         startW   = getWidth();
+        if(onDragStart) try { onDragStart(); } catch(e) { void e; }
         try
         {
             await Compositor.setCursor(win, 'ew-resize');
@@ -1023,7 +1126,7 @@ export async function createTreeSplitter(win, parent, opts = {})
         await UI.setOnMouseMove(win, dragHost, async (wp) => {
             if(!dragging) return;
             const dx = (wp?.x || 0) - startX;
-            await setWidth(startW + dx);
+            await setWidth(invert ? startW - dx : startW + dx);
         });
         await UI.setOnMouseUp(win, dragHost, endDrag);
     });
@@ -1054,7 +1157,16 @@ export async function createTreeSplitter(win, parent, opts = {})
         });
     }
 
-    return {root: strip};
+    return {
+        root: strip,
+        async setHitWidth(w) {
+            const next = Math.max(0, Math.round(w));
+            await UI.setLayoutSize(win, strip, {x: next});
+        },
+        async reapplyTheme() {
+            await settled(UI.setBoxColour(win, rule, theme.border));
+        }
+    };
 }
 
 /**
@@ -1333,6 +1445,18 @@ export async function createStatusBar(win, parent, opts = {})
             if(key === lastKey) return;
             lastKey = key;
             await Promise.all([fitSeg(rightLn, posLabel), fitSeg(rightIndent, indent), fitSeg(rightLang, lang)]);
+        },
+        async reapplyTheme() {
+            lastKey = '';
+            const ops = [settled(UI.setBoxColour(win, bar, theme.statusBg))];
+            for(const seg of [...leftSegs, ...rightSegs])
+            {
+                if(!seg || seg.removed) continue;
+                if(seg.chip) ops.push(settled(UI.setBoxColour(win, seg.wrap, theme.statusChip)));
+                if(seg.text) ops.push(settled(UI.setTextColour(win, seg.text, theme.statusFg)));
+                if(seg.iconId) ops.push(settled(UI.setTextColour(win, seg.iconId, theme.statusFg)));
+            }
+            await Promise.all(ops);
         }
     };
 }

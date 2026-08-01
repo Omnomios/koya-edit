@@ -45,3 +45,22 @@ export function estimateLabelSize(text, fontSize, maxWidth)
     const h     = Math.max(14, Math.ceil(fontSize + 4));
     return {x: w, y: h};
 }
+
+/** Normalize getElementFrame / Rect into { x, y } pixel size. */
+export function frameSize(frame)
+{
+    if(!frame) return {x: 0, y: 0};
+    if(frame.size && typeof frame.size.x === 'number')
+        return {x: Math.max(0, frame.size.x || 0), y: Math.max(0, frame.size.y || 0)};
+    if(frame.max && frame.min)
+    {
+        return {
+            x: Math.max(0, (frame.max.x || 0) - (frame.min.x || 0)),
+            y: Math.max(0, (frame.max.y || 0) - (frame.min.y || 0))
+        };
+    }
+    return {
+        x: Math.max(0, frame.width || frame.x || 0),
+        y: Math.max(0, frame.height || frame.y || 0)
+    };
+}

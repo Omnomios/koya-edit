@@ -165,11 +165,15 @@ export async function createCommandPalette(win, parent, opts = {})
         if(runId && registry) await registry.run(runId);
     };
 
-    const openPalette = async () => {
+    const openPalette = async (initialFilter = '') => {
         if(open) return;
         open     = true;
-        filter   = '';
+        filter   = String(initialFilter || '');
         selected = 0;
+        await Promise.all([
+            settled(UI.setBoxColour(win, box, theme.panelHigh)),
+            settled(UI.setBoxColour(win, inputWrap, theme.panelAlt))
+        ]);
         await UI.setEnabled(win, backdrop, true);
         await refreshMatches();
         onOpenChange(true);

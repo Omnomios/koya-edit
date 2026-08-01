@@ -62,6 +62,7 @@ export async function createEditorViewport(win, parent, opts = {})
 {
     const onDirty     = typeof opts.onDirty === 'function' ? opts.onDirty : () => {};
     const onStatus    = typeof opts.onStatus === 'function' ? opts.onStatus : () => {};
+    const onFocus     = typeof opts.onFocus === 'function' ? opts.onFocus : () => {};
     let gutterW       = theme.gutterWidth;
     const gutterTextW = () => Math.max(1, gutterW - GUTTER_PAD_L - GUTTER_PAD_R);
 
@@ -2709,6 +2710,7 @@ export async function createEditorViewport(win, parent, opts = {})
 
     await UI.setOnMouseDown(win, editorClip, async (_wp, local) => {
         focused = true;
+        try { onFocus(); } catch(e) { void e; }
         if(!doc || !local) return;
         ensureCursors(doc);
         const extend   = mods.hasShift();
@@ -2823,6 +2825,12 @@ export async function createEditorViewport(win, parent, opts = {})
             return changed;
         },
         setDocument(next) {
+            // Same buffer already bound — do not wipe highlight cache / colour areas.
+            if(next === doc)
+            {
+                if(next) focused = true;
+                return;
+            }
             if(selecting)
             {
                 selecting = false;
@@ -2887,13 +2895,55 @@ export async function createEditorViewport(win, parent, opts = {})
             this.setWordWrap(!wrapEnabled());
         },
         focus() {
+            if(focused) return;
             focused = true;
             mods.clear();
             queueRender();
         },
         blur() {
+            if(!focused) return;
             focused = false;
             mods.clear();
+            queueRender();
+        },
+        async reapplyTheme() {
+            lastColourKey = '';
+            await clearAllLineColourAreas();
+            for(const entry of lineEls)
+            {
+                entry.rowHlEpoch = -1;
+                entry.selKey = '';
+            }
+            try
+            {
+                await Promise.all([
+                    settled(UI.setBoxColour(win, frame, theme.bg)),
+                    settled(UI.setBoxColour(win, editorClip, theme.bg)),
+                    settled(UI.setBoxColour(win, gutterClip, theme.bg)),
+                    settled(UI.setBoxColour(win, activeLineBg, theme.activeLine || theme.panelAlt)),
+                    settled(UI.setBoxColour(win, activeLineAccent, theme.primary)),
+                    settled(UI.setBoxColour(win, activeGutterBg, theme.activeLine || theme.panelAlt))
+                ]);
+            }
+            catch(e) { void e; }
+            for(const el of caretEls)
+            {
+                try { await settled(UI.setBoxColour(win, el, theme.caret)); }
+                catch(e) { void e; }
+            }
+            if(doc)
+            {
+                hlJobToken++;
+                hlInFlight = false;
+                hlPending = null;
+                if(hlTimer)
+                {
+                    clearTimeout(hlTimer);
+                    hlTimer = null;
+                }
+                hlCache = {source: null, lexedSource: null, path: null, colour: null, spans: [], lineRuns: [], version: 0};
+                scheduleHighlight(doc.text, doc.path, doc.language);
+            }
             queueRender();
         },
         queueRender,

@@ -9,12 +9,17 @@ function settled(promise)
 }
 
 /**
- * Left sidebar with activity tabs + stacked view bodies.
- * Core mounts Explorer; plugins contribute via contribute().
+ * Activity sidebar (left or right). Core mounts Explorer on the left;
+ * plugins contribute via contribute(). Right rail starts collapsed until
+ * the first contribute expands it.
+ *
+ * @param {{ width?: number, side?: 'left'|'right', collapsed?: boolean }} [opts]
  */
 export async function createSideBar(win, parent, opts = {})
 {
-    let paneWidth = typeof opts.width === 'number' ? opts.width : theme.treeWidth;
+    const side = opts.side === 'right' ? 'right' : 'left';
+    let expandedWidth = typeof opts.width === 'number' ? opts.width : theme.treeWidth;
+    let paneWidth = opts.collapsed ? 0 : expandedWidth;
     const tabH    = theme.menuHeight || theme.tabHeight || 36;
     const tabW    = 40;
 
@@ -43,7 +48,7 @@ export async function createSideBar(win, parent, opts = {})
     const activity = await UI.createElement(win, {
         renderable: {type: 'box', colour: theme.panelAlt},
         layout: {type: 'row', gap: 0, alignItems: 'center', justifyContent: 'start', padding: {l: 4, r: 4, t: 0, b: 0}},
-        item: {size: {x: paneWidth, y: tabH}, flexShrink: 0},
+        item: {size: {x: Math.max(paneWidth, tabW), y: tabH}, flexShrink: 0},
         contentAlign: 'fill',
         clipToBounds: true
     });
@@ -63,8 +68,13 @@ export async function createSideBar(win, parent, opts = {})
     const views  = new Map();
     let activeId = null;
     let tabOrder = [];
+    /** @type {null | ((visible: boolean, width: number) => void|Promise<void>)} */
+    let onVisibilityChange = typeof opts.onVisibilityChange === 'function' ? opts.onVisibilityChange : null;
 
-    const syncActivityWidth = async () => { await settled(UI.setLayoutSize(win, activity, {x: paneWidth, y: tabH})); };
+    const syncActivityWidth = async () => {
+        const w = Math.max(paneWidth, paneWidth > 0 ? paneWidth : tabW);
+        await settled(UI.setLayoutSize(win, activity, {x: w, y: tabH}));
+    };
 
     const paintTab = async (view, active) => {
         await Promise.all([
@@ -105,7 +115,6 @@ export async function createSideBar(win, parent, opts = {})
 
     const rebuildTabOrder = async () => {
         tabOrder = [...views.values()].sort((a, b) => a.order - b.order || (a.id < b.id ? -1 : 1));
-        // Detach/reattach tabs in order (retained nodes).
         for(const v of tabOrder)
         {
             if(typeof UI.detach === 'function') await settled(UI.detach(win, activity, v.tab));
@@ -171,17 +180,28 @@ export async function createSideBar(win, parent, opts = {})
         return view;
     };
 
+    const ensureExpanded = async () => {
+        if(paneWidth > 0) return paneWidth;
+        paneWidth = expandedWidth;
+        await Promise.all([settled(UI.setLayoutSize(win, pane, {x: paneWidth})), syncActivityWidth()]);
+        if(onVisibilityChange) await onVisibilityChange(true, paneWidth);
+        return paneWidth;
+    };
+
     const contribute = async (spec = {}) => {
         const id = String(spec.id || '');
         if(!id) return {remove: async () => {}, focus: async () => {}};
         if(views.has(id))
         {
+            await ensureExpanded();
             const existing = views.get(id);
-            return {remove: async () => { await removeView(id); }, focus: async () => { await showView(id); }};
+            void existing;
+            return {remove: async () => { await removeView(id); }, focus: async () => { await ensureExpanded(); await showView(id); }};
         }
         await createViewChrome(spec);
+        await ensureExpanded();
         if(!activeId) await showView(id);
-        return {remove: async () => { await removeView(id); }, focus: async () => { await showView(id); }};
+        return {remove: async () => { await removeView(id); }, focus: async () => { await ensureExpanded(); await showView(id); }};
     };
 
     const removeView = async (id) => {
@@ -203,6 +223,12 @@ export async function createSideBar(win, parent, opts = {})
         await settled(UI.destroyElement(win, view.body));
         await rebuildTabOrder();
         if(!activeId && views.size) await showView(tabOrder[0] ? tabOrder[0].id : [...views.keys()][0]);
+        if(views.size === 0 && opts.collapsed)
+        {
+            paneWidth = 0;
+            await Promise.all([settled(UI.setLayoutSize(win, pane, {x: 0})), syncActivityWidth()]);
+            if(onVisibilityChange) await onVisibilityChange(false, 0);
+        }
     };
 
     /**
@@ -220,22 +246,50 @@ export async function createSideBar(win, parent, opts = {})
     };
 
     void estimateLabelSize;
+    void side;
 
     return {
         root: pane,
+        side,
         contribute,
         registerCoreView,
-        focus: showView,
+        focus: async (id) => {
+            await ensureExpanded();
+            await showView(id);
+        },
         getActiveId: () => activeId,
         getWidth() {
             return paneWidth;
         },
+        isVisible() {
+            return paneWidth > 0;
+        },
         async setWidth(next) {
+            if(next <= 0)
+            {
+                paneWidth = 0;
+                await Promise.all([settled(UI.setLayoutSize(win, pane, {x: 0})), syncActivityWidth()]);
+                if(onVisibilityChange) await onVisibilityChange(false, 0);
+                return 0;
+            }
             const w = Math.max(160, Math.min(640, Math.round(next)));
+            expandedWidth = w;
             if(w === paneWidth) return paneWidth;
             paneWidth = w;
             await Promise.all([settled(UI.setLayoutSize(win, pane, {x: paneWidth})), syncActivityWidth()]);
+            if(onVisibilityChange) await onVisibilityChange(true, paneWidth);
             return paneWidth;
+        },
+        setOnVisibilityChange(fn) {
+            onVisibilityChange = typeof fn === 'function' ? fn : null;
+        },
+        async reapplyTheme() {
+            await Promise.all([
+                settled(UI.setBoxColour(win, pane, theme.panel)),
+                settled(UI.setBoxColour(win, activity, theme.panelAlt))
+            ]);
+            for(const view of views.values())
+                await paintTab(view, view.id === activeId);
         }
     };
 }

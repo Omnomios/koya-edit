@@ -256,6 +256,14 @@ export async function createWindowChrome(win, opts = {})
         /** Window title stays on the compositor; menu bar has no title label. */
         async setTitle(_text) {
             void _text;
+        },
+        async reapplyTheme() {
+            await Promise.all([
+                UI.setBoxColour(win, root, theme.shell),
+                UI.setBoxColour(win, shell, theme.shell),
+                UI.setBoxColour(win, titleBar, theme.panelAlt),
+                UI.setTextColour(win, menuIcon, theme.textDim)
+            ]);
         }
     };
 }

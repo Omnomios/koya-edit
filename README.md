@@ -39,7 +39,7 @@ A basic Wayland IDE shape:
 - File tree, tabs, status bar
 - Multiline editor with soft wrap, multi-cursor, undo
 - Tree-sitter highlighting (JS, C/C++, and friends via packs)
-- Soft-mounted plugins (git SCM, image viewer, markdown preview, …)
+- Soft-mounted plugins (themes, git SCM, image viewer, markdown preview, …)
 - Native gap-fill for host FS / process (`Module/editor`); Koya's VFS stays for app assets
 
 It's early. It edits text. It doesn't pretend to be your whole career.
@@ -64,9 +64,15 @@ cmake --build native/editor/build -j
 | | |
 |---|---|
 | Ctrl+Shift+P | Command palette |
+| Preferences: Color Theme | Switch colour theme (palette) |
 | Ctrl+S / Ctrl+Shift+S | Save / Save As |
 | Ctrl+N | New untitled |
 | Ctrl+W | Close tab |
+| Ctrl+\ | Split editor right |
+| Ctrl+1 / Ctrl+2 | Focus editor group |
+| Right-click tab | Close / split / open to side |
+| Right-click explorer | Open / copy path / new file |
+| Middle-click tab | Close tab |
 | Ctrl+D | Select next occurrence |
 | Ctrl+click / drag | Add selection |
 | Ctrl+C / X / V / A | Clipboard / select all |
@@ -81,7 +87,7 @@ KoyaEdit/
   scripts/run.sh
 ```
 
-Feature packs soft-mount under `/rom/plugins/<id>/`. Core discovers them; it doesn't hard-import your git UI. Highlight packs live separately under `packs/plugins/highlight/`.
+Feature packs soft-mount under `/rom/plugins/<id>/`. Core discovers them; it doesn't hard-import your git UI. Colour themes are contributed the same way (`host.registerTheme`) — the bundled palettes live in `packs/plugins/themes/`. Highlight packs live separately under `packs/plugins/highlight/`.
 
 ## Status
 
